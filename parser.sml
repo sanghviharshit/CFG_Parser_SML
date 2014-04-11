@@ -300,22 +300,46 @@ fun ParseHost (str, prevToken, lineNumber) =
 	let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
 	in 
 		case token of
-		HOSTID => ( print tValue; print ":\n"; ParseHost(cr, HOSTID, lineNumber) )
+		HOST => ParseHost(cr, HOST, lineNumber)
+		| HOSTID => ( print "HOST "; print tValue; print ":\n"; ParseHost(cr, HOSTID, lineNumber) )
 		| OBRACE => ( ParseKeyVal(cr, OBRACE, lineNumber) )
+		| EOF => ()
 		| _ => (print "ERR:P:"; print (Int.toString lineNumber); print "\n")
 	end
 and ParseKeyVal (str, prevToken, lineNumber) =
+	let	fun ParseKey (str, prevToken, lineNumber)=
 		let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
 		in 
 		case token of
-		KEY => ( (*print (Int.toString lineNumber); *)print "    "; print ":"; print tValue; print ":"; ParseKeyVal(cr, KEY, lineNumber) )
-		| VAL => ( print valType; print ":"; print tValue; print "\n"; ParseKeyVal(cr, VAL, lineNumber) )
-		| EQ => ( ParseKeyVal(cr, EQ, lineNumber) )
-		| CBRACE => ("\n"; ParseKeyVal(cr, CBRACE, lineNumber) )
-		| HOST => (print "HOST "; ParseHost(cr, HOST, lineNumber))
-		| EOF => (print "\n")
+		KEY => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; *)ParseEq(tValue, cr, KEY, lineNumber))
+		| CBRACE => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; print ":"; print "\n"; *) ParseHost(cr, CBRACE, lineNumber) )
 		| _ => (print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
 		end
+	and ParseEq (keyValue, str, prevToken, lineNumber) =
+		let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
+		in 
+		case token of
+		EQ => ((*print "="; *) ParseVal (keyValue, cr, EQ, lineNumber))
+		| _ => (print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
+		end
+	and ParseVal (keyValue, str, prevToken, lineNumber)=
+		let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
+		in 
+		case token of
+		VAL => ( print "    "; print valType; print ":"; print ":"; print keyValue; print ":"; print tValue; print "\n"; ParseNext(cr, VAL, lineNumber) )
+		| _ => ( print (Tok2Str(token)); print tValue; print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
+		end
+	and ParseNext (str, prevToken, lineNumber)=
+		let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
+		in 
+		case token of
+		CBRACE => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; print ":"; print "\n"; *)ParseHost(cr, CBRACE, lineNumber) )
+		| KEY => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; print ":"; *) ParseEq(tValue, cr, KEY, lineNumber) )
+		| _ => (print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
+		end
+	in
+		ParseKey (str, prevToken, lineNumber)
+	end
 and ParseGlobal (str, prevToken, lineNumber) =
 	let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
 	in 
