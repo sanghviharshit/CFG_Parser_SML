@@ -1,4 +1,5 @@
-CM.make "$smlnj-tdp/back-trace.cm";
+Control.Print.stringDepth := 2000;
+
 
 val inFile = "test.cfg" ;
 
@@ -57,7 +58,7 @@ fun IsHostIdChar c = (IsLetter c orelse IsDigit c orelse c = #"." orelse c = #"_
 fun IsHostIdStart c = (IsLetter c orelse IsDigit c orelse c = #"." orelse c = #"_" orelse c = #"-")
 fun IsKeyChar c = (IsLetter c orelse IsDigit c orelse c = #"_")
 fun IsKeyStart c = (IsLetter c orelse c = #"_")
-fun IsQuoteChar c = (IsAscii c andalso c <> #"\"" andalso c<> #"\\")
+fun IsQuoteChar c = (IsAscii c andalso c <> #"\"" andalso c<> #"\\" andalso ord c <> 10)
 
 (*)
 fun TrimBlanks (str) =
@@ -67,23 +68,19 @@ fun TrimBlanks (str) =
       | str =>  str
 *)
 fun ScanNumber (str, tValue) =
-	let fun CheckFirstChar (str, tValue) =
-		case str of
-		c :: cr => 	if IsDigit c then ScanFirst(cr, c :: tValue)
-					else (str, implode (rev tValue), "O", ERROR)
-	and ScanFirst (str, tValue) =
+	let fun ScanFirst (str, tValue) =
 	    case str of
-		c :: cr => 	if c = #"." then ScanRest(cr, #"." :: tValue)
+		c :: cr => 	if c = #"." then ScanFloat(cr, #"." :: tValue)
 					else if IsDigit c then ScanFirst(cr, c :: tValue)
 		   				else (str, implode (rev tValue), "I", NOERROR)
  	   	| [] => (str, implode (rev tValue), "I", NOERROR)
-	and ScanRest (str, tValue) =
+	and ScanFloat (str, tValue) =
 	    case str of
-		c :: cr => 	if IsDigit c then ScanRest(cr, c :: tValue)
+		c :: cr => 	if IsDigit c then ScanFloat(cr, c :: tValue)
 		   			else (str, implode (rev tValue), "F", NOERROR)
  	   | [] => (str, implode (rev tValue), "F", NOERROR)
  	in
- 		CheckFirstChar (str, tValue)
+ 		ScanFirst (str, tValue)
  	end
 (*
 
@@ -152,9 +149,11 @@ fun ScanQuote (str,tValue) =
 							else if (ord c = 92 andalso ord cnext = 110) then ScanQ(cr, chr 10 :: tValue)
 							else if (ord c = 92 andalso ord cnext = 114) then ScanQ(cr, chr 13 :: tValue)
 							else if (ord c = 92 andalso ord cnext = 34) then ScanQ(cr, cnext :: tValue)
-							else if (ord c = 92) then ScanQ(cr, cnext :: tValue)
+							else if (ord c = 92) andalso IsQuoteChar cnext then ScanQ(cr, cnext :: tValue)
+							else if (ord c = 92) then (cnext::cr, implode (rev tValue), ERROR)
+							else if (ord c = 10) then (cnext::cr, implode (rev tValue), ERROR)
 							else if c = #"\"" then (cnext::cr, implode (rev tValue), NOERROR)
-		   					else (str, implode (rev tValue), NOERROR)
+		   					else (str, implode (rev tValue), ERROR)
  	   | [] => (str, implode (rev tValue), NOERROR)
  	in
  		ScanQ (str, tValue)
@@ -230,6 +229,10 @@ fun Scan (str,prevToken,lineNumber) =
 					    		in 	if ScError = NOERROR then (VAL, tValue, implode(newStr),  tType,  lineNumber) 
 					    			else (print "ERR:L:"; print (Int.toString lineNumber); print "\n"; raise Scanerror)
 					    		end
+	      | #"." :: cr => 	let val (newStr, tValue, tType, ScError) = ScanNumber(#"."::cr, [])
+			    		in 	if ScError = NOERROR then (VAL, tValue, implode(newStr),  tType,  lineNumber) 
+			    			else (print "ERR:L:"; print (Int.toString lineNumber); print "\n"; raise Scanerror)
+			    		end
 	      | #"_" :: cr => 	(
 	      					case prevToken of
 							HOST 	=> 	let val (newStr, tValue, ScError) = ScanHostId(cr, [#"_"])
@@ -246,7 +249,13 @@ fun Scan (str,prevToken,lineNumber) =
 				 						end
 				 			| _		=> 	(print "ERR:L:"; print (Int.toString lineNumber); print "\n"; raise Scanerror)
 				 			)
-	      | #";" :: cr => (* (SCOL,  "", implode(cr)) *) Scan (implode(cr), prevToken,lineNumber)
+	      | #";" :: cr => (* (SCOL,  "", implode(cr)) *) 	(	case prevToken of 
+	      														OBRACE	=>	(ERR, "", "",  "",  lineNumber)
+	      														| VAL 	=> 	(ERR, "", "",  "",  lineNumber)
+	      														| SCOL	=> 	(ERR, "", "",  "",  lineNumber)
+	      														| CBRACE=> 	Scan (implode(cr), SCOL,lineNumber)
+	      														| _		=> 	(ERR, "", "",  "",  lineNumber)
+	      													)
 	      | #"{" :: cr => (OBRACE, "", implode(cr),  "",  lineNumber)
 	      | #"}" :: cr => (CBRACE, "", implode(cr),  "",  lineNumber)
 	      | #"=" :: cr => (EQ, "", implode(cr),  "",  lineNumber)
@@ -258,7 +267,9 @@ fun Scan (str,prevToken,lineNumber) =
 					    	end
 		  | #"\"" :: cr =>  let val (newStr, tValue, ScError) = ScanQuote(cr, [])
 					    	in
-					    		(VAL, tValue, implode(newStr),  "Q",  lineNumber)
+					    		case ScError of
+					    		NOERROR => 	(VAL, tValue, implode(newStr),  "Q",  lineNumber)
+					    		| _		=>	(ERR, "", "",  "",  lineNumber)
 					    	end
 	      | c :: cr => 	if IsLetter c then
 			   				case prevToken of
@@ -274,6 +285,12 @@ fun Scan (str,prevToken,lineNumber) =
 					   						"host" 	=> (HOST, tValue, implode(newStr),  "",  lineNumber)
 					    					| _ => (ERR, tValue, implode(newStr),  "",  lineNumber)
 					    					end
+					    		| SCOL 	=> 	let val (newStr, tValue, ScError) = ScanKey(cr, [c])
+				       						in
+				       						case tValue of
+					   						"host" 	=> (HOST, tValue, implode(newStr),  "",  lineNumber)
+					    					| _ => (ERR, tValue, implode(newStr),  "",  lineNumber)
+					    				end
 					    		| OBRACE => let val (newStr, tValue, ScError) = ScanKey(cr, [c])
 				       						in (KEY, tValue, implode(newStr),  "",  lineNumber)
 					    					end
@@ -290,12 +307,13 @@ fun Scan (str,prevToken,lineNumber) =
 					    					in
 					    						(HOSTID, tValue, implode(newStr),  "",  lineNumber)
 					    					end
-					    		| _ => 		(print ">>>\n"; print (implode(c::[#"\n"]));"ERR:L:"; print (Int.toString lineNumber); print "\n"; raise Scanerror)
+					    		| _ => 		((*print ">>>\n"; print (implode(c::[#"\n"]));*)print "ERR:L:"; print (Int.toString lineNumber); print "\n"; raise Scanerror)
 					    else if IsDigit c then
 					    	let val (newStr, tValue, tType, ScError) = ScanNumber(c::cr, [])
 					    	in (VAL, tValue, implode(newStr),  tType,  lineNumber) end
 			   			else ((*print (implode(cr)); print (implode(c::[#"\n"]));*)print "ERR:L:"; print (Int.toString lineNumber); print "\n"; raise Scanerror)
     in sc (strArray) end
+    handle Scanerror => OS.Process.exit(OS.Process.success);
 
 fun Readfile (filename: string): string =
     let open TextIO
@@ -307,6 +325,7 @@ val fileStream = Readfile(inFile);
 
 fun ParseHost (globalKeys, str, prevToken, lineNumber) = 
 	let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
+		val (kType, overRide, keyName, keyValue) = ("S", "O", "keyName", "keyValue")
 	in 
 		case token of
 		HOST => ParseHost(globalKeys, cr, HOST, lineNumber)
@@ -340,11 +359,18 @@ and ParseKeyVal (globalKeys:string list, groupType, str, prevToken, lineNumber) 
 				if ((List.exists (fn y => (y = keyValue)) globalKeys) orelse (List.exists (fn y => (y = keyValue)) curHostKeys)) then print "O"
 				else print "";
 				
-				print ":"; print keyValue; print ":"; print tValue; print "\n"; 
+				print ":"; print keyValue; print ":"; 
+				if valType = "Q" then print "\"\"\""
+				else print "";
+
+				print tValue;
+				if valType = "Q" then print "\"\"\""
+				else print "";
+ 				print "\n";
 				if groupType = #"G" then ParseNext(keyValue::globalKeys, curHostKeys, cr, VAL, lineNumber)
 				else  ParseNext(globalKeys, keyValue::curHostKeys, cr, VAL, lineNumber)
 				)
-		| _ => ( print (Tok2Str(token)); print tValue; print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
+		| _ => ( (*print (Tok2Str(token)); *) print tValue; print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
 		end
 	and ParseNext (globalKeys, curHostKeys, str, prevToken, lineNumber)=
 		let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
