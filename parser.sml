@@ -1,7 +1,7 @@
 Control.Print.stringDepth := 2000;
 
 
-val inFile = "test.cfg" ;
+val inFile = "x1.cfg" ;
 
 exception Scanerror
 
@@ -58,7 +58,7 @@ fun IsHostIdChar c = (IsLetter c orelse IsDigit c orelse c = #"." orelse c = #"_
 fun IsHostIdStart c = (IsLetter c orelse IsDigit c orelse c = #"." orelse c = #"_" orelse c = #"-")
 fun IsKeyChar c = (IsLetter c orelse IsDigit c orelse c = #"_")
 fun IsKeyStart c = (IsLetter c orelse c = #"_")
-fun IsQuoteChar c = (IsAscii c andalso c <> #"\"" andalso c<> #"\\" andalso ord c <> 10)
+fun IsQuoteChar c = (IsAscii c andalso ord c <> 0 andalso c <> #"\"" andalso c<> #"\\" andalso ord c <> 10)
 
 (*)
 fun TrimBlanks (str) =
@@ -229,10 +229,10 @@ fun Scan (str,prevToken,lineNumber) =
 					    		in 	if ScError = NOERROR then (VAL, tValue, implode(newStr),  tType,  lineNumber) 
 					    			else (print "ERR:L:"; print (Int.toString lineNumber); print "\n"; raise Scanerror)
 					    		end
-	      | #"." :: cr => 	let val (newStr, tValue, tType, ScError) = ScanNumber(#"."::cr, [])
-			    		in 	if ScError = NOERROR then (VAL, tValue, implode(newStr),  tType,  lineNumber) 
-			    			else (print "ERR:L:"; print (Int.toString lineNumber); print "\n"; raise Scanerror)
-			    		end
+	      | #"." :: cr => 	let val (newStr, tValue, ScError) = ScanHostId(cr, [#"."])
+				    			in
+				   					(HOSTID, tValue, implode(newStr),  "",  lineNumber)
+				 				end
 	      | #"_" :: cr => 	(
 	      					case prevToken of
 							HOST 	=> 	let val (newStr, tValue, ScError) = ScanHostId(cr, [#"_"])
@@ -323,77 +323,98 @@ fun Readfile (filename: string): string =
 
 val fileStream = Readfile(inFile);
 
-fun ParseHost (globalKeys, str, prevToken, lineNumber) = 
+fun PrintQuotes(valType) = 
+	if valType = "Q" then print "\"\"\""
+	else print ""
+
+fun PrintGroup (hostId, groupType, keyValList) =
+	let fun PrintKeyValPairs (keyValList) = 
+		case keyValList of 
+			(valType, overRide, keyValue, tValue) :: cr => 	(
+															print "    ";
+															print valType;
+															print ":";
+															print overRide;
+															print ":";
+															print keyValue;
+															print ":";
+															PrintQuotes(valType);
+															print tValue;
+															PrintQuotes(valType);
+															print "\n";
+															PrintKeyValPairs (cr)
+															)
+			| [] => ()
+	in
+		if groupType = #"G" then (print "GLOBAL:\n")
+		else (print "HOST "; print hostId; print ":"; print "\n");													
+		PrintKeyValPairs(rev keyValList)
+	end
+
+fun ParseHost (hostId, globalKeys, str, prevToken, lineNumber) = 
 	let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
 		val (kType, overRide, keyName, keyValue) = ("S", "O", "keyName", "keyValue")
 	in 
 		case token of
-		HOST => ParseHost(globalKeys, cr, HOST, lineNumber)
-		| HOSTID => ( print "HOST "; print tValue; print ":\n"; ParseHost(globalKeys, cr, HOSTID, lineNumber) )
-		| OBRACE => ( ParseKeyVal(globalKeys, #"H", cr, OBRACE, lineNumber) )
+		HOST => ParseHost(hostId, globalKeys, cr, HOST, lineNumber)
+		| HOSTID => ( ParseHost(tValue, globalKeys, cr, HOSTID, lineNumber) )
+		| OBRACE => ( ParseKeyVal(hostId, globalKeys, #"H", cr, OBRACE, lineNumber) )
 		| EOF => ()
 		| _ => (print "ERR:P:"; print (Int.toString lineNumber); print "\n")
 	end
-and ParseKeyVal (globalKeys:string list, groupType, str, prevToken, lineNumber) =
-	let	fun ParseKey (globalKeys, curHostKeys, str, prevToken, lineNumber)=
+and ParseKeyVal (hostId: string, globalKeys: string list, groupType: char, str: string, prevToken: Token, lineNumber: int) =
+	let	fun ParseKey (keyValList, globalKeys, curHostKeys, str, prevToken, lineNumber)=
 		let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
 		in 
 		case token of
-		KEY => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; *)ParseEq(globalKeys, curHostKeys, tValue, cr, KEY, lineNumber))
-		| CBRACE => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; print ":"; print "\n"; *) ParseHost(globalKeys, cr, CBRACE, lineNumber) )
+		KEY => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; *)ParseEq(keyValList, globalKeys, curHostKeys, tValue, cr, KEY, lineNumber))
+		| CBRACE => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; print ":"; print "\n"; *) ParseHost("", globalKeys, cr, CBRACE, lineNumber) )
 		| _ => (print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
 		end
-	and ParseEq (globalKeys, curHostKeys, keyValue, str, prevToken, lineNumber) =
+	and ParseEq (keyValList, globalKeys, curHostKeys, keyValue, str, prevToken, lineNumber) =
 		let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
 		in 
 		case token of
-		EQ => ((*print "="; *) ParseVal (globalKeys, curHostKeys, keyValue, cr, EQ, lineNumber))
+		EQ => ((*print "="; *) ParseVal (keyValList, globalKeys, curHostKeys, keyValue, cr, EQ, lineNumber))
 		| _ => (print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
 		end
-	and ParseVal (globalKeys, curHostKeys, keyValue, str, prevToken, lineNumber)=
+	and ParseVal (keyValList, globalKeys, curHostKeys, keyValue, str, prevToken, lineNumber)=
 		let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
 		in 
 		case token of
 		VAL => 	(
-				print "    "; print valType; print ":"; 
-				if ((List.exists (fn y => (y = keyValue)) globalKeys) orelse (List.exists (fn y => (y = keyValue)) curHostKeys)) then print "O"
-				else print "";
-				
-				print ":"; print keyValue; print ":"; 
-				if valType = "Q" then print "\"\"\""
-				else print "";
-
-				print tValue;
-				if valType = "Q" then print "\"\"\""
-				else print "";
- 				print "\n";
-				if groupType = #"G" then ParseNext(keyValue::globalKeys, curHostKeys, cr, VAL, lineNumber)
-				else  ParseNext(globalKeys, keyValue::curHostKeys, cr, VAL, lineNumber)
+				if ((List.exists (fn y => (y = keyValue)) globalKeys) orelse (List.exists (fn y => (y = keyValue)) curHostKeys)) then 
+					if groupType = #"G" then ParseNext((valType, "O", keyValue, tValue)::keyValList, keyValue::globalKeys, curHostKeys, cr, VAL, lineNumber)
+					else  ParseNext((valType, "O", keyValue, tValue)::keyValList, globalKeys, keyValue::curHostKeys, cr, VAL, lineNumber)
+				else
+					if groupType = #"G" then ParseNext((valType, "", keyValue, tValue)::keyValList, keyValue::globalKeys, curHostKeys, cr, VAL, lineNumber)
+					else  ParseNext((valType, "", keyValue, tValue)::keyValList, globalKeys, keyValue::curHostKeys, cr, VAL, lineNumber)
 				)
-		| _ => ( (*print (Tok2Str(token)); *) print tValue; print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
+		| _ => ( (*print (Tok2Str(token)); *) print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
 		end
-	and ParseNext (globalKeys, curHostKeys, str, prevToken, lineNumber)=
+	and ParseNext (keyValList, globalKeys, curHostKeys, str, prevToken, lineNumber)=
 		let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
 		in 
 		case token of
-		CBRACE => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; print ":"; print "\n"; *)ParseHost(globalKeys, cr, CBRACE, lineNumber) )
-		| KEY => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; print ":"; *) ParseEq(globalKeys, curHostKeys, tValue, cr, KEY, lineNumber) )
+		CBRACE => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; print ":"; print "\n"; *)PrintGroup(hostId, groupType, keyValList); ParseHost("", globalKeys, cr, CBRACE, lineNumber) )
+		| KEY => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; print ":"; *) ParseEq(keyValList, globalKeys, curHostKeys, tValue, cr, KEY, lineNumber) )
 		| _ => (print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
 		end
 	in
-		ParseKey (globalKeys, ["??","###"], str, prevToken, lineNumber)
+		ParseKey ([], globalKeys, [], str, prevToken, lineNumber)
 	end
 and ParseGlobal (str, prevToken, lineNumber) =
 	let val (token,tValue,cr,valType,lineNumber) = Scan (str, prevToken, lineNumber)
 	in 
 		case token of
-		OBRACE => ( ParseKeyVal(["??","###"], #"G", cr, OBRACE, lineNumber) )
+		OBRACE => ( ParseKeyVal("", [], #"G", cr, OBRACE, lineNumber) )
 		| _ => (print "ERR:P:"; print (Int.toString lineNumber); print "\n")
 	end
+	
 fun ParseFile (fileStream) =
     let val (token,tValue,cr,valType,lineNumber) = Scan (fileStream, PROG, 1)
     in case token of 
-	   	GLOBAL => (print "GLOBAL:\n"; ParseGlobal(cr, GLOBAL, lineNumber) )
+	   	GLOBAL => (ParseGlobal(cr, GLOBAL, lineNumber) )
 	 	| _ => (print "ERR:P:"; print (Int.toString lineNumber); print "\n")
     end
 
