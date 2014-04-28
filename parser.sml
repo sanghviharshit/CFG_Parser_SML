@@ -1,15 +1,14 @@
 Control.Print.stringDepth := 2000;
 
 
-val inFile = "x1.cfg" ;
+val inFile = "test.cfg" ;
 
 exception Scanerror
 
 
 datatype Token =
-	 PROG | Plus | Minus | SCOL | OBRACE | CBRACE | Real of real | GLOBAL | HOST | COMMENT
-	 | KEY | EQ | HOSTID | ERR | TYPE | VAL | EOF | valval of string | keyval of string | hostidval of string
-
+	 PROG | SCOL | OBRACE | CBRACE | GLOBAL | HOST | COMMENT
+	 | KEY | EQ | HOSTID | ERR | TYPE | VAL | EOF
 datatype ScanReturnError = 
 	ERROR
 	| NOERROR
@@ -28,21 +27,8 @@ fun Tok2Str(token) =
 		| VAL => "VAL"
 		| _ => "OTHER"
 
-type lexInfo = string * Token
+fun Inc x = x + 1;
 
-fun realval c = real(ord c - ord #"0")
-
-(*
-fun IsSame (item1, item2) = 
-	let 
-		val itemX = Tok2Str(item1)
-		val itemY = Tok2Str(item2)
-	in
-		case itemX of
-		itemY => true
-		_ => false
-	end
-*)
 fun IsAscii c = (0 <= ord c andalso ord c <= 127)
 fun IsLower c = (#"a" <= c andalso c <= #"z")
 fun IsUpper c = (#"A" <= c andalso c <= #"Z")
@@ -54,10 +40,10 @@ fun IsLetter c = (IsLower c orelse IsUpper c)
 fun IsLetterDigit c = (IsLetter c orelse IsDigit c)
 fun IsStringStart c = (IsLetter c orelse c = #"/")
 fun IsStringChar c = (IsLetter c orelse IsDigit c orelse c = #"_" orelse c = #"/" orelse c = #"." orelse c = #"-")
-fun IsHostIdChar c = (IsLetter c orelse IsDigit c orelse c = #"." orelse c = #"_" orelse c = #"-")
 fun IsHostIdStart c = (IsLetter c orelse IsDigit c orelse c = #"." orelse c = #"_" orelse c = #"-")
-fun IsKeyChar c = (IsLetter c orelse IsDigit c orelse c = #"_")
+fun IsHostIdChar c = (IsLetter c orelse IsDigit c orelse c = #"." orelse c = #"_" orelse c = #"-")
 fun IsKeyStart c = (IsLetter c orelse c = #"_")
+fun IsKeyChar c = (IsLetter c orelse IsDigit c orelse c = #"_")
 fun IsQuoteChar c = (IsAscii c andalso ord c <> 0 andalso c <> #"\"" andalso c<> #"\\" andalso ord c <> 10)
 
 (*)
@@ -82,21 +68,6 @@ fun ScanNumber (str, tValue) =
  	in
  		ScanFirst (str, tValue)
  	end
-(*
-
-Test float value 3.
-0.
-and -1
-
-*)
-
-(*)
-fun SkipSign (str, tValue) =
-	case str of
-		#"-" :: cr 	=>  ScanNumber (cr, [#"-"])
-		| c :: cr 	=>	(cr, implode (rev tValue))
-
-*)
 
 fun ScanKey (str, tValue) =
 	let fun CheckFirstChar (str, tValue) =
@@ -159,52 +130,6 @@ fun ScanQuote (str,tValue) =
  		ScanQ (str, tValue)
  	end
 
-(* Old/WIP Code
-	      | #"-" :: c :: cr => 	if IsDigit c then
-	      							let val (newStr, tValue, ScError) = ScanNumber(c::cr, [#"-"])
-					    			in if ScError = NOERROR then (VAL, tValue, implode(newStr), lineNumber) 
-					    				else (print "ERR:L:0\n"; raise Scanerror)
-					    			end
-					    		else (print "ERR:L:0\n"; raise Scanerror)
-	      | #"_" :: cr => 	case prevToken of
-	   					HOST 	=> 	let val (newStr, tValue, ScError) = ScanHostId(cr, [#"_"])
-			    					in
-			   							(HOSTID, tValue, implode(newStr), lineNumber)
-			 						end
-			 			| OBRACE =>	let val (newStr, tValue, ScError) = ScanKey(cr, [#"_"])
-			    					in
-			   							(KEY, tValue, implode(newStr), lineNumber)
-			 						end
-			 			| VAL => 	let val (newStr, tValue, ScError) = ScanKey(cr, [#"_"])
-			    					in
-			   							(KEY, tValue, implode(newStr), lineNumber)
-			 						end
-			 			| _		=> 	(print "ERR:L:0\n"; raise Scanerror)
-
-if IsLetter #"c" then 
-	      						case prevToken of
-	      						HOST => let val (newStr, tValue, ScError) = ScanKey(cr, [#"-"])
-					    			in 	if ScError = NOERROR then (VAL, tValue, implode(newStr), lineNumber) 
-					    				else (print "ERR:L:0\n"; raise Scanerror)
-					    			end
-					    		| _ => (print "ERR:L:0\n"; raise Scanerror)
-					    	else
-					    		(print "ERR:L:0\n"; raise Scanerror)
-					    		end
-	      | #"-" :: cr => 	let val (newStr, tValue, ScError) = ScanNumber(cr, [#"-"])
-					    		in 	if ScError = NOERROR then 	(
-					    										if (List.exists (fn: y => (y = #".")) newStr) then (VAL, tValue, implode(newStr),  "F",  lineNumber)
-					    										else (VAL, tValue, implode(newStr),  "I",  lineNumber)
-					    										)
-					    			else (print "ERR:L:"; print (Int.toString lineNumber); print "\n"; raise Scanerror)
-					    		end
-
-
-#comment 
-
-*)
-
-fun Inc x = x + 1;
 
 fun ScanComment (str, tValue) =
     case str of
@@ -269,7 +194,7 @@ fun Scan (str,prevToken,lineNumber) =
 					    	in
 					    		case ScError of
 					    		NOERROR => 	(VAL, tValue, implode(newStr),  "Q",  lineNumber)
-					    		| _		=>	(ERR, "", "",  "",  lineNumber)
+					    		| _		=>	(print "ERR:L:"; print (Int.toString lineNumber); print "\n"; raise Scanerror)
 					    	end
 	      | c :: cr => 	if IsLetter c then
 			   				case prevToken of
@@ -368,7 +293,7 @@ and ParseKeyVal (hostId: string, globalKeys: string list, groupType: char, str: 
 		in 
 		case token of
 		KEY => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; *)ParseEq(keyValList, globalKeys, curHostKeys, tValue, cr, KEY, lineNumber))
-		| CBRACE => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; print ":"; print "\n"; *) ParseHost("", globalKeys, cr, CBRACE, lineNumber) )
+		| CBRACE => ( (*print (Int.toString lineNumber); print "    "; print ":"; print tValue; print ":"; print "\n"; *) PrintGroup(hostId, groupType, keyValList); ParseHost("", globalKeys, cr, CBRACE, lineNumber) )
 		| _ => (print "ERR:P:"; print (Int.toString lineNumber); print "\n"(*; print tValue*))
 		end
 	and ParseEq (keyValList, globalKeys, curHostKeys, keyValue, str, prevToken, lineNumber) =
@@ -419,43 +344,3 @@ fun ParseFile (fileStream) =
     end
 
 val it = ParseFile(fileStream);
-
-(*
-
-fun Scan s =
-    let fun sc str =
-	    case str of
-		[] => []
-	      | #"+" :: cr => Plus :: sc cr
-	      | #"-" :: cr => Minus :: sc cr
-	      | #";" :: cr => SCOL :: sc cr
-	      | #"{" :: cr => OBRACE :: sc cr
-	      | #"}" :: cr => CBRACE :: sc cr
-	      | #"=" :: cr => EQ ::
-			      let val (str3, n3) = ScanString(cr, [])
-			      in case n3 of
-					  _ => valval n3 :: sc str3
-			      end
-	      | #"#" :: cr => let val (str3, n3) = ScanComment(cr, [])
-			      in case n3 of
-				     _ =>   sc str3
-			      end
-	      | c :: cr => if IsBlank c then sc cr
-			   else if IsLetter c then
-			       let val (str1, n) = ScanKey(cr, [c])
-			       in case n of
-				      "global" => GLOBAL  :: sc str1
-				    | "host"   => HOST :: 
-						  let val(str2, n2) = ScanHostId(str1,[])
-						  in case n2 of
-							 _ =>  hostidval  n2 :: sc str2
-						  end
-				    | _        => keyval n  :: sc str1
-			       end
-			   else raise Scanerror
-    in sc (explode s) end
-
-
-val token = Scan (Readfile(inFile));
-
-*)
