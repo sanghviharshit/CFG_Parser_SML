@@ -1,7 +1,7 @@
 Control.Print.stringDepth := 2000;
 
 
-val inFile = "test.cfg" ;
+val inFile = "test/test.cfg" ;
 
 exception Scanerror
 
